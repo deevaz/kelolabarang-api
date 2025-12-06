@@ -11,6 +11,7 @@ use App\Http\Controllers\StockOutController;
 use App\Http\Controllers\HistoryController;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Mail;
 
 /*
 |--------------------------------------------------------------------------
@@ -34,12 +35,20 @@ Route::get('/app-ads.txt', function () {
     abort(404); // Or handle the case where the file doesn't exist as you see fit
 });
 
+// Auth Routes
+Route::prefix('auth')->group(function () {  
+    // Password Reset dengan Kode 6 Digit
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+    Route::post('/verify-reset-code', [AuthController::class, 'verifyResetCode']); 
+    Route::post('/resend-reset-code', [AuthController::class, 'resendResetCode']); 
+});
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 // ! LUPA PASSWORD
-Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+// Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+
 Route::get('/test-email', function() {
     Mail::raw('Hello, this is a test email!', function($message) {
         $message->to('demo@mailtrap.io')->subject('Test Email');
