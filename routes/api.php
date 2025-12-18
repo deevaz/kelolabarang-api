@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SuppliersController;
 use App\Http\Controllers\BusinessController;
+use App\Http\Controllers\AiStockController;
 use App\Http\Controllers\StockInController;
 use App\Http\Controllers\StockOutController;
 use App\Http\Controllers\HistoryController;
@@ -23,6 +24,9 @@ use Illuminate\Support\Facades\Mail;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
+
+// ai
+Route::get('/ai/predict-stock', [AiStockController::class, 'predict']);
 
 // ADS
 Route::get('/app-ads.txt', function () {
