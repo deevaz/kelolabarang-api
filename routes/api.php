@@ -6,11 +6,13 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SuppliersController;
 use App\Http\Controllers\BusinessController;
+use App\Http\Controllers\AiStockController;
 use App\Http\Controllers\StockInController;
 use App\Http\Controllers\StockOutController;
 use App\Http\Controllers\HistoryController;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Mail;
 
 /*
 |--------------------------------------------------------------------------
@@ -23,6 +25,9 @@ use Illuminate\Support\Facades\File;
 |
 */
 
+// ai
+Route::get('/ai/predict-stock', [AiStockController::class, 'predict']);
+
 // ADS
 Route::get('/app-ads.txt', function () {
     $path = public_path('storage/app-ads.txt'); // Adjust this path if your app-ads.txt is not in public/storage
@@ -34,12 +39,20 @@ Route::get('/app-ads.txt', function () {
     abort(404); // Or handle the case where the file doesn't exist as you see fit
 });
 
+// Auth Routes
+Route::prefix('auth')->group(function () {  
+    // Password Reset dengan Kode 6 Digit
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+    Route::post('/verify-reset-code', [AuthController::class, 'verifyResetCode']); 
+    Route::post('/resend-reset-code', [AuthController::class, 'resendResetCode']); 
+});
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 // ! LUPA PASSWORD
-Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+// Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+
 Route::get('/test-email', function() {
     Mail::raw('Hello, this is a test email!', function($message) {
         $message->to('demo@mailtrap.io')->subject('Test Email');

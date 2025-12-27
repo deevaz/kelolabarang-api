@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use App\Notifications\CustomResetPassword;
+use App\Mail\ResetPasswordMail;
+use Illuminate\Support\Facades\Mail;
 
 class AuthController extends Controller
 {
@@ -183,48 +185,250 @@ class AuthController extends Controller
         ], 200);
     }
 
+    // public function forgotPassword(Request $request)
+    // {
+    //     $request->validate([
+    //         'email' => 'required|email',
+    //     ]);
+
+    //     $user = User::where('email', $request->email)->first();
+
+    //     if (!$user) {
+    //         return response()->json(['message' => 'Email tidak ditemukan'], 404);
+    //     }
+
+    //     $status = Password::sendResetLink(
+    //         $request->only('email'),
+    //         function ($user, $token) {
+    //             $user->notify(new CustomResetPassword($token));
+    //         }
+    //     );
+
+    //     return $status === Password::RESET_LINK_SENT
+    //         ? response()->json(['message' => __($status)])
+    //         : response()->json(['error' => __($status)], 400);
+    // }
+
+    // public function resetPassword(Request $request)
+    // {
+    //     $request->validate([
+    //         'token' => 'required',
+    //         'email' => 'required|email',
+    //         'password' => 'required|string|min:6|confirmed',
+    //     ]);
+
+    //     $status = Password::reset(
+    //         $request->only('email', 'password', 'password_confirmation', 'token'),
+    //         function ($user) use ($request) {
+    //             $user->password = Hash::make($request->password);
+    //             $user->save();
+    //         }
+    //     );
+
+    //     return $status === Password::PASSWORD_RESET
+    //         ? response()->json(['message' => __($status)])
+    //         : response()->json(['error' => __($status)], 400);
+    // }
     public function forgotPassword(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email',
-        ]);
+{
+    $request->validate([
+        'email' => 'required|email',
+    ]);
 
-        $user = User::where('email', $request->email)->first();
+    $user = User::where('email', $request->email)->first();
 
-        if (!$user) {
-            return response()->json(['message' => 'Email tidak ditemukan'], 404);
+    if (!$user) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Email tidak ditemukan'
+        ], 404);
+    }
+
+    // Generate kode 6 digit
+    $code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+    
+    // Simpan ke database dengan expiry 10 menit
+    \Illuminate\Support\Facades\DB::table('password_reset_codes')->updateOrInsert(
+        ['email' => $user->email],
+        [
+            'code' => $code,
+            'expires_at' => now()->addMinutes(10),
+            'created_at' => now()
+        ]
+    );
+
+    // Kirim email
+    Mail::to($user->email)->send(new ResetPasswordMail(
+        $user->name,
+        $code,
+        $user->email,
+        now()->addMinutes(10)
+    ));
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Kode reset password (6 digit) telah dikirim ke email Anda',
+        'expires_in' => '10 menit'
+    ]);
+}
+
+public function verifyResetCode(Request $request)
+{
+    $request->validate([
+        'email' => 'required|email',
+        'code' => 'required|string|size:6',
+    ]);
+
+    $resetCode = \Illuminate\Support\Facades\DB::table('password_reset_codes')
+        ->where('email', $request->email)
+        ->first();
+
+    if (!$resetCode) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Kode tidak ditemukan'
+        ], 400);
+    }
+
+    if (now()->greaterThan($resetCode->expires_at)) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Kode sudah kadaluarsa'
+        ], 400);
+    }
+
+    if ($resetCode->code !== $request->code) {
+        // Update attempts
+        $attempts = $resetCode->attempts + 1;
+        \Illuminate\Support\Facades\DB::table('password_reset_codes')
+            ->where('email', $request->email)
+            ->update(['attempts' => $attempts]);
+        
+        if ($attempts >= 3) {
+            \Illuminate\Support\Facades\DB::table('password_reset_codes')
+                ->where('email', $request->email)
+                ->delete();
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terlalu banyak percobaan. Silakan request kode baru.'
+            ], 400);
         }
-
-        $status = Password::sendResetLink(
-            $request->only('email'),
-            function ($user, $token) {
-                $user->notify(new CustomResetPassword($token));
-            }
-        );
-
-        return $status === Password::RESET_LINK_SENT
-            ? response()->json(['message' => __($status)])
-            : response()->json(['error' => __($status)], 400);
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Kode tidak valid',
+            'attempts_remaining' => 3 - $attempts
+        ], 400);
     }
 
-    public function resetPassword(Request $request)
-    {
-        $request->validate([
-            'token' => 'required',
-            'email' => 'required|email',
-            'password' => 'required|string|min:6|confirmed',
-        ]);
+    // Kode valid
+    return response()->json([
+        'success' => true,
+        'message' => 'Kode valid',
+        'data' => [
+            'email' => $request->email,
+            'code' => $request->code,
+            'expires_at' => $resetCode->expires_at
+        ]
+    ]);
+}
 
-        $status = Password::reset(
-            $request->only('email', 'password', 'password_confirmation', 'token'),
-            function ($user) use ($request) {
-                $user->password = Hash::make($request->password);
-                $user->save();
-            }
-        );
+public function resetPassword(Request $request)
+{
+    $request->validate([
+        'email' => 'required|email',
+        'code' => 'required|string|size:6',
+        'password' => 'required|string|min:6|confirmed',
+    ]);
 
-        return $status === Password::PASSWORD_RESET
-            ? response()->json(['message' => __($status)])
-            : response()->json(['error' => __($status)], 400);
+    // Verifikasi kode terlebih dahulu
+    $resetCode = \Illuminate\Support\Facades\DB::table('password_reset_codes')
+        ->where('email', $request->email)
+        ->first();
+
+    if (!$resetCode || $resetCode->code !== $request->code) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Kode tidak valid'
+        ], 400);
     }
+
+    if (now()->greaterThan($resetCode->expires_at)) {
+        \Illuminate\Support\Facades\DB::table('password_reset_codes')
+            ->where('email', $request->email)
+            ->delete();
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Kode sudah kadaluarsa'
+        ], 400);
+    }
+
+    // Reset password user
+    $user = User::where('email', $request->email)->first();
+    $user->password = Hash::make($request->password);
+    $user->save();
+
+    // Hapus kode setelah berhasil
+    \Illuminate\Support\Facades\DB::table('password_reset_codes')
+        ->where('email', $request->email)
+        ->delete();
+
+    // Optional: Kirim notifikasi password berhasil diubah
+    // Mail::to($user->email)->send(new PasswordChangedMail($user->name));
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Password berhasil direset'
+    ]);
+}
+
+public function resendResetCode(Request $request)
+{
+    $request->validate([
+        'email' => 'required|email',
+    ]);
+
+    $user = User::where('email', $request->email)->first();
+
+    if (!$user) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Email tidak ditemukan'
+        ], 404);
+    }
+
+    // Hapus kode lama jika ada
+    \Illuminate\Support\Facades\DB::table('password_reset_codes')
+        ->where('email', $user->email)
+        ->delete();
+
+    // Generate kode baru
+    $code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+    
+    // Simpan kode baru
+    \Illuminate\Support\Facades\DB::table('password_reset_codes')->updateOrInsert(
+        ['email' => $user->email],
+        [
+            'code' => $code,
+            'expires_at' => now()->addMinutes(10),
+            'created_at' => now()
+        ]
+    );
+
+    // Kirim email baru
+    Mail::to($user->email)->send(new ResetPasswordMail(
+        $user->name,
+        $code,
+        $user->email,
+        now()->addMinutes(10)
+    ));
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Kode reset baru telah dikirim',
+        'expires_in' => '10 menit'
+    ]);
+}
 }
